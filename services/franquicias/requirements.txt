@@ -1,0 +1,10 @@
+# Servicio franquicias — Django 6.1.2 + DRF sobre Daphne.
+# Valida JWT con la clave pública (PyJWT), no emite tokens.
+Django==6.1.2
+djangorestframework==3.18.3
+daphne==4.1.2
+dj-database-url==2.3.0
+psycopg[binary]==3.2.3
+PyJWT==2.10.1
+cryptography==44.0.0
+Pillow==11.0.0

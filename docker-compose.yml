@@ -1,0 +1,137 @@
+name: franquisisas
+
+services:
+  # ------------------------------------------------------------------
+  #  Infraestructura
+  # ------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    env_file: .env
+    # Requiere contraseña; el puerto NO se expone al host (solo red interna).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  #  Microservicios backend (Django + Daphne / ASGI)
+  # ------------------------------------------------------------------
+  auth:
+    build: ./services/auth
+    env_file: .env
+    environment:
+      SERVICE_NAME: auth
+      DATABASE_URL: "postgres://${AUTH_DB_USER}:${AUTH_DB_PASSWORD}@postgres:5432/${AUTH_DB_NAME}"
+    entrypoint: ["sh", "entrypoint.sh"]
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - ./services/auth:/app
+      - ./shared/jwt_keys:/keys          # auth necesita la clave privada
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  franquicias:
+    build: ./services/franquicias
+    env_file: .env
+    environment:
+      SERVICE_NAME: franquicias
+      DATABASE_URL: "postgres://${FRANQUICIAS_DB_USER}:${FRANQUICIAS_DB_PASSWORD}@postgres:5432/${FRANQUICIAS_DB_NAME}"
+    entrypoint: ["sh", "entrypoint.sh"]
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - ./services/franquicias:/app
+      - ./shared/jwt_keys:/keys:ro       # solo la pública (validar)
+      - media:/media                     # imágenes (items, solicitudes)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  notificaciones:
+    build: ./services/notificaciones
+    env_file: .env
+    environment:
+      SERVICE_NAME: notificaciones
+      DATABASE_URL: "postgres://${NOTIFICACIONES_DB_USER}:${NOTIFICACIONES_DB_PASSWORD}@postgres:5432/${NOTIFICACIONES_DB_NAME}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+    entrypoint: ["sh", "entrypoint.sh"]
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - ./services/notificaciones:/app
+      - ./shared/jwt_keys:/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  #  Frontends (React + Vite) — dos SPAs independientes
+  # ------------------------------------------------------------------
+  frontend-admin:
+    build: ./frontend/admin
+    env_file: .env
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    volumes:
+      - ./frontend/admin:/app
+      - /app/node_modules
+    expose:
+      - "5173"
+    restart: unless-stopped
+
+  frontend-franquicia:
+    build: ./frontend/franquicia
+    env_file: .env
+    command: npm run dev -- --host 0.0.0.0 --port 5174
+    volumes:
+      - ./frontend/franquicia:/app
+      - /app/node_modules
+    expose:
+      - "5174"
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------
+  #  Gateway interno (único puerto expuesto; NPM apunta aquí en prod)
+  # ------------------------------------------------------------------
+  nginx:
+    build: ./nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - media:/media:ro                  # sirve las imágenes en /media/
+    depends_on:
+      - auth
+      - franquicias
+      - notificaciones
+      - frontend-admin
+      - frontend-franquicia
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:
