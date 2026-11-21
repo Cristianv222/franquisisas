@@ -33,21 +33,15 @@ al host: Nginx Proxy Manager llega al gateway por la red Docker externa
 ```bash
 git clone <URL_DEL_REPOSITORIO> franquisisas
 cd franquisisas
-cp .env.example .env
+bash configurar-produccion.sh
 ```
 
-Edita `.env` y completa todos los secretos vacíos con valores independientes.
-Genera cada uno con `openssl rand -hex 32`. Mantén `DEBUG=0` y el dominio real
-en `ALLOWED_HOSTS`.
-
-Genera el par JWT en el servidor; no lo guardes en el repositorio:
-
-```bash
-mkdir -p shared/jwt_keys
-openssl genpkey -algorithm RSA -out shared/jwt_keys/private.pem -pkeyopt rsa_keygen_bits:2048
-openssl rsa -in shared/jwt_keys/private.pem -pubout -out shared/jwt_keys/public.pem
-chmod 600 shared/jwt_keys/private.pem
-```
+El script crea/completa `.env` con secretos aleatorios, crea el par JWT si aún no
+existe y valida Compose sin imprimir los secretos. Protege `.env` y la clave
+privada con permisos restrictivos. Conserva cualquier secreto que ya exista.
+Si encuentra un volumen PostgreSQL existente y faltan contraseñas, se detiene:
+restaura los valores originales antes de continuar para no perder acceso a los
+datos. No guardes `.env` ni las claves privadas en el repositorio.
 
 Nginx Proxy Manager debe estar conectado a una red Docker llamada `general-net`.
 Si esa red aún no existe, créala una sola vez:
