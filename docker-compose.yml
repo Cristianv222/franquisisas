@@ -1,85 +1,112 @@
 name: franquisisas
 
 services:
-  # ------------------------------------------------------------------
-  #  Infraestructura
-  # ------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Configura POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Configura POSTGRES_DB en .env}
+      AUTH_DB_NAME: ${AUTH_DB_NAME:?Configura AUTH_DB_NAME en .env}
+      AUTH_DB_USER: ${AUTH_DB_USER:?Configura AUTH_DB_USER en .env}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Configura AUTH_DB_PASSWORD en .env}
+      FRANQUICIAS_DB_NAME: ${FRANQUICIAS_DB_NAME:?Configura FRANQUICIAS_DB_NAME en .env}
+      FRANQUICIAS_DB_USER: ${FRANQUICIAS_DB_USER:?Configura FRANQUICIAS_DB_USER en .env}
+      FRANQUICIAS_DB_PASSWORD: ${FRANQUICIAS_DB_PASSWORD:?Configura FRANQUICIAS_DB_PASSWORD en .env}
+      NOTIFICACIONES_DB_NAME: ${NOTIFICACIONES_DB_NAME:?Configura NOTIFICACIONES_DB_NAME en .env}
+      NOTIFICACIONES_DB_USER: ${NOTIFICACIONES_DB_USER:?Configura NOTIFICACIONES_DB_USER en .env}
+      NOTIFICACIONES_DB_PASSWORD: ${NOTIFICACIONES_DB_PASSWORD:?Configura NOTIFICACIONES_DB_PASSWORD en .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks:
+      - franqor-network
 
   redis:
     image: redis:7.4-alpine
-    env_file: .env
-    # Requiere contraseña; el puerto NO se expone al host (solo red interna).
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Configura REDIS_PASSWORD en .env}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Configura REDIS_PASSWORD en .env}"]
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks:
+      - franqor-network
 
-  # ------------------------------------------------------------------
-  #  Microservicios backend (Django + Daphne / ASGI)
-  # ------------------------------------------------------------------
   auth:
     build: ./services/auth
-    env_file: .env
     environment:
       SERVICE_NAME: auth
-      DATABASE_URL: "postgres://${AUTH_DB_USER}:${AUTH_DB_PASSWORD}@postgres:5432/${AUTH_DB_NAME}"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Configura DJANGO_SECRET_KEY en .env}
+      DEBUG: ${DEBUG:-0}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Configura ALLOWED_HOSTS en .env}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-/keys/private.pem}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-/keys/public.pem}
+      JWT_ACCESS_LIFETIME_MIN: ${JWT_ACCESS_LIFETIME_MIN:-15}
+      JWT_REFRESH_LIFETIME_DAYS: ${JWT_REFRESH_LIFETIME_DAYS:-7}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-onboarding@resend.dev}
+      DATABASE_URL: "postgres://${AUTH_DB_USER:?Configura AUTH_DB_USER en .env}:${AUTH_DB_PASSWORD:?Configura AUTH_DB_PASSWORD en .env}@postgres:5432/${AUTH_DB_NAME:?Configura AUTH_DB_NAME en .env}"
     entrypoint: ["sh", "entrypoint.sh"]
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
     volumes:
-      - ./services/auth:/app
-      - ./shared/jwt_keys:/keys          # auth necesita la clave privada
+      - ./shared/jwt_keys:/keys:ro
     depends_on:
       postgres:
         condition: service_healthy
     expose:
       - "8000"
     restart: unless-stopped
+    networks:
+      - franqor-network
 
   franquicias:
     build: ./services/franquicias
-    env_file: .env
     environment:
       SERVICE_NAME: franquicias
-      DATABASE_URL: "postgres://${FRANQUICIAS_DB_USER}:${FRANQUICIAS_DB_PASSWORD}@postgres:5432/${FRANQUICIAS_DB_NAME}"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Configura DJANGO_SECRET_KEY en .env}
+      DEBUG: ${DEBUG:-0}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Configura ALLOWED_HOSTS en .env}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-/keys/public.pem}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-onboarding@resend.dev}
+      DATABASE_URL: "postgres://${FRANQUICIAS_DB_USER:?Configura FRANQUICIAS_DB_USER en .env}:${FRANQUICIAS_DB_PASSWORD:?Configura FRANQUICIAS_DB_PASSWORD en .env}@postgres:5432/${FRANQUICIAS_DB_NAME:?Configura FRANQUICIAS_DB_NAME en .env}"
     entrypoint: ["sh", "entrypoint.sh"]
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
     volumes:
-      - ./services/franquicias:/app
-      - ./shared/jwt_keys:/keys:ro       # solo la pública (validar)
-      - media:/media                     # imágenes (items, solicitudes)
+      - ./shared/jwt_keys:/keys:ro
+      - media:/media
     depends_on:
       postgres:
         condition: service_healthy
     expose:
       - "8000"
     restart: unless-stopped
+    networks:
+      - franqor-network
 
   notificaciones:
     build: ./services/notificaciones
-    env_file: .env
     environment:
       SERVICE_NAME: notificaciones
-      DATABASE_URL: "postgres://${NOTIFICACIONES_DB_USER}:${NOTIFICACIONES_DB_PASSWORD}@postgres:5432/${NOTIFICACIONES_DB_NAME}"
-      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Configura DJANGO_SECRET_KEY en .env}
+      DEBUG: ${DEBUG:-0}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Configura ALLOWED_HOSTS en .env}
+      JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-/keys/public.pem}
+      DATABASE_URL: "postgres://${NOTIFICACIONES_DB_USER:?Configura NOTIFICACIONES_DB_USER en .env}:${NOTIFICACIONES_DB_PASSWORD:?Configura NOTIFICACIONES_DB_PASSWORD en .env}@postgres:5432/${NOTIFICACIONES_DB_NAME:?Configura NOTIFICACIONES_DB_NAME en .env}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?Configura REDIS_PASSWORD en .env}@redis:6379/0"
     entrypoint: ["sh", "entrypoint.sh"]
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
     volumes:
-      - ./services/notificaciones:/app
       - ./shared/jwt_keys:/keys:ro
     depends_on:
       postgres:
@@ -89,41 +116,32 @@ services:
     expose:
       - "8000"
     restart: unless-stopped
+    networks:
+      - franqor-network
 
-  # ------------------------------------------------------------------
-  #  Frontends (React + Vite) — dos SPAs independientes
-  # ------------------------------------------------------------------
   frontend-admin:
     build: ./frontend/admin
-    env_file: .env
-    command: npm run dev -- --host 0.0.0.0 --port 5173
-    volumes:
-      - ./frontend/admin:/app
-      - /app/node_modules
     expose:
-      - "5173"
+      - "80"
     restart: unless-stopped
+    networks:
+      - franqor-network
 
   frontend-franquicia:
     build: ./frontend/franquicia
-    env_file: .env
-    command: npm run dev -- --host 0.0.0.0 --port 5174
-    volumes:
-      - ./frontend/franquicia:/app
-      - /app/node_modules
     expose:
-      - "5174"
+      - "80"
     restart: unless-stopped
+    networks:
+      - franqor-network
 
-  # ------------------------------------------------------------------
-  #  Gateway interno (único puerto expuesto; NPM apunta aquí en prod)
-  # ------------------------------------------------------------------
   nginx:
+    container_name: franqor_nginx_prod
     build: ./nginx
-    ports:
-      - "8080:80"
     volumes:
-      - media:/media:ro                  # sirve las imágenes en /media/
+      - media:/media:ro
+    expose:
+      - "80"
     depends_on:
       - auth
       - franquicias
@@ -131,7 +149,18 @@ services:
       - frontend-admin
       - frontend-franquicia
     restart: unless-stopped
+    networks:
+      - franqor-network
+      - general-net
 
 volumes:
   pgdata:
   media:
+
+networks:
+  franqor-network:
+    name: franqor_network_prod
+    driver: bridge
+  general-net:
+    name: general-net
+    external: true
