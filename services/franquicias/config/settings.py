@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "core",
     "franquicias",
+    "printer",
 ]
 
 MIDDLEWARE = [
@@ -86,6 +87,9 @@ LANGUAGE_CODE = "es"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
+
+# Zona horaria que se imprime en los tickets (el servidor corre en UTC).
+PRINT_TIMEZONE = os.environ.get("PRINT_TIMEZONE", "America/Guayaquil")
 
 STATIC_URL = "static/"
 

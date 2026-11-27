@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ShoppingCart, BarChart3, Inbox, LogOut, ChevronLeft, ChevronRight,
-  UtensilsCrossed, Boxes, Store, Users, Receipt, Settings,
+  UtensilsCrossed, Boxes, Store, Users, Receipt, Settings, Printer,
 } from "lucide-react";
 import { logout, claims, esAdminFranquicia } from "./auth";
 import { api } from "./api";
@@ -15,6 +15,7 @@ import Reportes from "./Reportes";
 import Solicitudes from "./Solicitudes";
 import Usuarios from "./Usuarios";
 import Config from "./Config";
+import Impresoras from "./Impresoras";
 import Notificaciones from "./Notificaciones";
 
 // El último campo indica si la pestaña es solo para el administrador de la
@@ -27,6 +28,7 @@ const NAV = [
   ["reportes", "Reportes", BarChart3, Reportes, false],
   ["solicitudes", "Solicitudes", Inbox, Solicitudes, true],
   ["usuarios", "Usuarios", Users, Usuarios, true],
+  ["impresoras", "Impresoras", Printer, Impresoras, true],
   ["config", "Configuración", Settings, Config, true],
 ];
 
