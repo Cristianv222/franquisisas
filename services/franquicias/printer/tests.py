@@ -316,3 +316,75 @@ class RevisionTests(APITestCase):
         self._venta()
         t = _client_agente(self.tok).get("/printer/agente/trabajos/").json()["trabajos"][0]
         self.assertEqual(t["conexion"], {"tipo": "network", "host": "192.168.1.50", "puerto": 9100})
+
+
+class ImpresionAlVenderTests(APITestCase):
+    """Al registrar una venta en el POS salen comanda + ticket, solo en la impresora de ESA franquicia."""
+
+    def setUp(self):
+        from franquicias.models import Item
+        self.item = Item.objects.create(
+            nombre="Papipollo", precio="3.50", franquicia_id=1, estado=Item.Estado.ACTIVO)
+        self.pa = Printer.objects.create(
+            franquicia_id=1, name="Printer_POS_80", connection_string="USB")
+        self.pb = Printer.objects.create(
+            franquicia_id=2, name="Otra", connection_string="USB")
+
+    def _vender(self, **extra):
+        cuerpo = {
+            "fecha_venta": "2026-11-27", "metodo_pago": "EFECTIVO",
+            "detalles": [{"item": self.item.id, "cantidad": 2}],
+            "tipo_entrega": "MESA", "mesa": 4, "monto_recibido": "10.00", **extra,
+        }
+        return _client_jwt(1).post("/ventas/", cuerpo, format="json")
+
+    def test_vender_encola_comanda_y_ticket_del_local(self):
+        r = self._vender()
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["impresion"]["estado"], "encolada")
+        jobs = PrintJob.objects.all()
+        self.assertEqual({j.document_type for j in jobs}, {"kitchen_order", "receipt"})
+        self.assertTrue(all(j.franquicia_id == 1 and j.printer_id == self.pa.id for j in jobs))
+
+    def test_contenido_de_comanda_y_ticket(self):
+        self._vender()
+        comanda = PrintJob.objects.get(document_type="kitchen_order").content
+        ticket = PrintJob.objects.get(document_type="receipt")
+        self.assertIn("2x  Papipollo", comanda)
+        self.assertIn("Mesa:    4", comanda)
+        self.assertNotIn("$", comanda)               # la comanda no lleva precios
+        self.assertIn("TOTAL", ticket.content)
+        self.assertIn("7.00", ticket.content)        # 2 x 3.50
+        self.assertIn("Cambio", ticket.content)      # pagó 10 → cambio 3.00
+        self.assertIn("3.00", ticket.content)
+        self.assertTrue(ticket.open_cash_drawer)
+
+    def test_para_llevar(self):
+        self._vender(tipo_entrega="LLEVAR", mesa=None)
+        comanda = PrintJob.objects.get(document_type="kitchen_order").content
+        self.assertIn("PARA LLEVAR", comanda)
+
+    def test_sin_impresora_la_venta_se_guarda_igual(self):
+        from franquicias.models import Venta
+        Printer.objects.filter(franquicia_id=1).update(is_active=False)
+        r = self._vender()
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["impresion"]["estado"], "sin_impresora")
+        self.assertEqual(Venta.objects.count(), 1)
+        self.assertEqual(PrintJob.objects.count(), 0)
+
+    def test_si_falla_la_impresion_la_venta_no_se_pierde(self):
+        from unittest import mock
+        from franquicias.models import Venta
+        with mock.patch("printer.ventas._generate_pos_ticket", side_effect=RuntimeError("boom")):
+            r = self._vender()
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["impresion"]["estado"], "error")
+        self.assertEqual(Venta.objects.count(), 1)
+        self.assertEqual(PrintJob.objects.count(), 0)   # ni comanda suelta: salen juntos o no salen
+
+    def test_no_imprime_en_la_impresora_de_otra_franquicia(self):
+        Printer.objects.filter(franquicia_id=1).delete()   # F1 sin impresora; F2 sí tiene
+        r = self._vender()
+        self.assertEqual(r.json()["impresion"]["estado"], "sin_impresora")
+        self.assertEqual(PrintJob.objects.filter(franquicia_id=2).count(), 0)
