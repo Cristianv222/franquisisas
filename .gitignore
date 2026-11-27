@@ -33,3 +33,8 @@ pnpm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# El agente de impresión es una app de escritorio para el equipo del local:
+# NO se despliega con el servidor. Vive fuera de este repo (../franqor-agente-impresion).
+agente-impresion/
+*.exe
