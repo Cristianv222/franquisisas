@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import ProtectedError
 from django.db.models import Count, F, Q, Sum
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -100,10 +101,28 @@ class SucursalViewSet(viewsets.ModelViewSet):
         return qs
 
 
-class MenuViewSet(viewsets.ModelViewSet):
+class _BorradoProtegidoMixin:
+    """DELETE que, si hay datos que dependen del registro, responde 409 con un
+    mensaje claro (en vez de un error 500)."""
+
+    mensaje_protegido = "No se puede eliminar porque tiene datos relacionados."
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"detail": self.mensaje_protegido}, status=status.HTTP_409_CONFLICT
+            )
+
+
+class MenuViewSet(_BorradoProtegidoMixin, viewsets.ModelViewSet):
     queryset = Menu.objects.all().order_by("nombre")
     serializer_class = MenuSerializer
     permission_classes = [EsAdmin]
+    mensaje_protegido = (
+        "Este menú todavía tiene productos. Elimina o mueve sus productos antes de borrarlo."
+    )
 
 
 class FranquiciaMenuViewSet(viewsets.ModelViewSet):
@@ -141,9 +160,13 @@ class RecetaViewSet(viewsets.ModelViewSet):
 
 
 # ---------------- Items: admin escribe, franquicia lee lo suyo ----------------
-class ItemViewSet(viewsets.ModelViewSet):
+class ItemViewSet(_BorradoProtegidoMixin, viewsets.ModelViewSet):
     serializer_class = ItemSerializer
     permission_classes = [AdminEscrituraFranquiciaLectura]
+    mensaje_protegido = (
+        "Este producto tiene ventas registradas y no se puede eliminar. "
+        "Desactívalo para que deje de aparecer en el punto de venta."
+    )
 
     def get_queryset(self):
         u = self.request.user
@@ -356,7 +379,13 @@ class VentaViewSet(
             tipo_entrega=datos.get("tipo_entrega", Venta.TipoEntrega.MESA),
             monto_recibido=datos.get("monto_recibido"),
         )
-        return Response(VentaSerializer(venta).data, status=status.HTTP_201_CREATED)
+        # La venta ya está guardada. Imprimir (comanda + ticket) es aparte: si falla,
+        # no afecta la venta; el POS recibe el resultado para avisar al cajero.
+        from printer.ventas import imprimir_venta
+
+        respuesta = VentaSerializer(venta).data
+        respuesta["impresion"] = imprimir_venta(venta)
+        return Response(respuesta, status=status.HTTP_201_CREATED)
 
 
 # ---------------- Solicitudes: la franquicia pide, el admin resuelve ----------------

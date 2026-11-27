@@ -42,6 +42,8 @@ export default function Layout() {
   const nav = NAV.filter((n) => !n[4] || adminFran);
   const current = nav.find((n) => n[0] === active) || nav[0];
   const Current = current[3];
+  // El POS no se desplaza completo: solo la lista de productos (ver Vender.jsx).
+  const esPOS = current[0] === "vender";
 
   useEffect(() => {
     api.get("/franquicias/franquicias/mia/").then(async (r) => {
@@ -113,8 +115,8 @@ export default function Layout() {
         </button>
       </aside>
 
-      <main className="ml-3 flex-1 overflow-auto rounded-2xl bg-white">
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-sand bg-white px-6 py-3">
+      <main className={`ml-3 min-w-0 flex-1 rounded-2xl bg-white ${esPOS ? "overflow-auto lg:flex lg:flex-col lg:overflow-hidden" : "overflow-auto"}`}>
+        <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-sand bg-white px-6 py-3">
           <h1 className="text-lg font-semibold">{current[1]}</h1>
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">{usuario[0]?.toUpperCase()}</div>
@@ -124,7 +126,7 @@ export default function Layout() {
             </div>
           </div>
         </header>
-        <div className="p-8"><Current /></div>
+        <div className={esPOS ? "p-4 lg:min-h-0 lg:flex-1 lg:p-5" : "p-8"}><Current /></div>
       </main>
 
       <Notificaciones />

@@ -99,16 +99,21 @@ export default function Vender() {
     const d = await res.json();
     if (res.ok) {
       const v = d.vuelto != null ? ` · Vuelto: $${Number(d.vuelto).toFixed(2)}` : "";
-      setMsg({ ok: `Orden #${d.numero_orden} registrada por $${d.monto_total}${v}.` });
+      const imp = d.impresion;
+      const impresa = imp?.estado === "encolada";
+      setMsg({
+        ok: `Orden #${d.numero_orden} registrada por $${d.monto_total}${v}.${impresa ? " Imprimiendo ticket y comanda…" : ""}`,
+        aviso: imp && !impresa ? `La venta se guardó, pero no se imprimió: ${imp.detalle}` : null,
+      });
       setCart({}); setRecibido(""); setMesa(""); setCliente(null);
       cargar();
     } else setMsg({ err: d.detail || JSON.stringify(d) });
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      {/* Productos */}
-      <div className="lg:col-span-2">
+    <div className="grid grid-cols-1 gap-6 lg:h-full lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
+      {/* Productos: es lo unico que se desplaza */}
+      <div className="lg:col-span-2 lg:min-h-0 lg:overflow-y-auto lg:pr-2">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {items.map((it) => (
             <button
@@ -144,7 +149,8 @@ export default function Vender() {
       </div>
 
       {/* Orden */}
-      <Card className="h-fit p-5">
+      <Card className="flex h-fit flex-col p-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
+       <div className="p-5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         <h3 className="mb-3 flex items-center gap-2 font-semibold"><ShoppingCart size={18} className="text-brand" /> Orden</h3>
 
         {/* Entrega */}
@@ -233,10 +239,6 @@ export default function Vender() {
         </div>
 
         <div className="my-4 border-t border-sand" />
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-ink/60">Total</span>
-          <span className="text-2xl font-bold">${total.toFixed(2)}</span>
-        </div>
 
         {/* Método de pago */}
         <label className="mb-1 block text-xs font-medium text-ink/60">Método de pago</label>
@@ -268,9 +270,19 @@ export default function Vender() {
           </div>
         )}
 
-        <Button onClick={vender} className="mt-1 w-full"><Check size={16} /> Registrar venta</Button>
+       </div>
+
+       {/* Pie fijo: el total y el boton de cobrar siempre a la vista */}
+       <div className="shrink-0 border-t border-sand bg-white p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-ink/60">Total</span>
+          <span className="text-2xl font-bold">${total.toFixed(2)}</span>
+        </div>
+        <Button onClick={vender} className="w-full"><Check size={16} /> Registrar venta</Button>
         {msg?.ok && <p className="mt-3 text-sm text-green-600">{msg.ok}</p>}
+        {msg?.aviso && <p className="mt-1 text-sm text-amber-600">{msg.aviso}</p>}
         {msg?.err && <p className="mt-3 text-sm text-red-500">{msg.err}</p>}
+       </div>
       </Card>
 
       {/* Modal registrar cliente */}
